@@ -13,6 +13,7 @@ import configparser
 import sys
 import urllib3
 import requests
+from collections import Counter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -96,6 +97,15 @@ def print_albums(albums):
     return col_width
 
 
+def count_duplicates(assets):
+    """Return (checksum_dupes, filename_dupes): assets sharing checksum / sharing filename."""
+    checksum_counts = Counter(a.get("checksum") for a in assets if a.get("checksum"))
+    fname_counts    = Counter(a.get("originalFileName") for a in assets if a.get("originalFileName"))
+    checksum_dupes = sum(1 for a in assets if checksum_counts.get(a.get("checksum", ""), 0) > 1)
+    fname_dupes    = sum(1 for a in assets if fname_counts.get(a.get("originalFileName", ""), 0) > 1)
+    return checksum_dupes, fname_dupes
+
+
 def print_album_detail(album_detail):
     """Print every asset in an album, sorted by date taken."""
     assets = album_detail.get("assets", [])
@@ -113,9 +123,11 @@ def print_album_detail(album_detail):
 
     photos = sum(1 for a in assets if a.get("type") == "IMAGE")
     videos = sum(1 for a in assets if a.get("type") == "VIDEO")
+    checksum_dupes, fname_dupes = count_duplicates(assets)
 
+    dupe_str = f", duplicates: {checksum_dupes} checksum / {fname_dupes} filename"
     print(f"\n  Album: {name}  ({photos} photo{'s' if photos != 1 else ''}, "
-          f"{videos} video{'s' if videos != 1 else ''})\n")
+          f"{videos} video{'s' if videos != 1 else ''}{dupe_str})\n")
     print(f"  {'#':>4}  {'File Name':<{fname_width}}  {'Date Taken':<19}  Type")
     print(f"  {'-'*4}  {'-'*fname_width}  {'-'*19}  ----")
 
