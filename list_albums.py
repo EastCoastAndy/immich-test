@@ -10,13 +10,23 @@ a matching display function below (display layer), then call it from main().
 """
 
 import configparser
+import re
 import sys
 import urllib3
 import requests
 from collections import Counter
+import signal
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+def shutdown_handler(signum, frame):
+    #print(f"\nSignal {signum} received, shutting down gracefully...")
+    # Perform cleanup here
+    print("\n\nExiting...")
+    sys.exit(0)
+
+# Register the signal handler for SIGINT (Ctrl+C)
+signal.signal(signal.SIGINT, shutdown_handler)
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -77,6 +87,33 @@ class ImmichClient:
 #         ...
 # ---------------------------------------------------------------------------
 
+def album_sort_key(album):
+    """Return a sortable date string for an album.
+
+    Priority:
+      1. startDate from the API (earliest asset date in the album)
+      2. A date found at the end of the album name (YYYY, YYYY-MM, or YYYY-MM-DD)
+      3. createdAt (when the album record was created)
+      4. Empty string (sorts to the end when using reverse=True)
+    """
+    # 1. API-provided start date
+    start = album.get("startDate") or album.get("endDate")
+    if start:
+        return start[:10]  # keep YYYY-MM-DD portion
+
+    # 2. Date pattern near the end of the album name
+    name = album.get("albumName", "")
+    m = re.search(r'(\d{4})[.\-/]?(\d{2})?[.\-/]?(\d{2})?[\s\)]*$', name)
+    if m:
+        year  = m.group(1)
+        month = m.group(2) or "00"
+        day   = m.group(3) or "00"
+        return f"{year}-{month}-{day}"
+
+    # 3. Album creation date
+    return album.get("createdAt", "")[:10]
+
+
 def print_albums(albums):
     """Print a numbered table of albums with asset counts. Returns column width."""
     max_name_len = max(len(a.get("albumName", "")) for a in albums)
@@ -135,7 +172,7 @@ def print_album_detail(album_detail):
         fname    = asset.get("originalFileName", "(unknown)")
         raw_dt   = asset.get("localDateTime") or asset.get("fileCreatedAt", "")
         date_str = raw_dt[:19].replace("T", " ") if raw_dt else "unknown"
-        icon     = {"IMAGE": "IMG", "VIDEO": "VID"}.get(asset.get("type", ""), "???")
+        icon     = {"IMAGE": "image", "VIDEO": "Video"}.get(asset.get("type", ""), "???")
         print(f"  {i:>4}  {fname:<{fname_width}}  {date_str:<19}  {icon}")
 
     print()
@@ -174,16 +211,16 @@ def main():
         print("No albums found.")
         return
 
-    albums.sort(key=lambda a: a.get("albumName", "").lower())
+    albums.sort(key=album_sort_key, reverse=True)  # newest first
     col_width = print_albums(albums)
 
     # Interactive loop: pick an album number to drill into
     while True:
-        try:
-            choice = input("  Enter album number to view details (or press Enter to quit): ").strip()
-        except (KeyboardInterrupt, EOFError):
-            print()
-            break
+        #try:
+        choice = input("  Enter album number to view details (or press Control C to quit): ").strip()
+        #except (KeyboardInterrupt, EOFError):
+        #    print()
+        #    break
 
         if not choice:
             break
@@ -201,6 +238,7 @@ def main():
             continue
 
         print_album_detail(detail)
+        input("Press Enter to continue or Ctrl+C to quit...")
         print_album_list_compact(albums, col_width)
 
 
